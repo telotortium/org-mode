@@ -94,6 +94,8 @@
 (require 'org-keys)
 (require 'ol)
 (require 'org-table)
+(require 'org-fold)
+(require 'org-cycle)
 
 ;; `org-outline-regexp' ought to be a defconst but is let-bound in
 ;; some places -- e.g. see the macro `org-with-limited-levels'.
@@ -1155,87 +1157,6 @@ are matched against file names, and values."
   :tag "Org Structure"
   :group 'org)
 
-(defgroup org-reveal-location nil
-  "Options about how to make context of a location visible."
-  :tag "Org Reveal Location"
-  :group 'org-structure)
-
-(defcustom org-show-context-detail '((agenda . local)
-				     (bookmark-jump . lineage)
-				     (isearch . lineage)
-				     (default . ancestors))
-  "Alist between context and visibility span when revealing a location.
-
-\\<org-mode-map>Some actions may move point into invisible
-locations.  As a consequence, Org always exposes a neighborhood
-around point.  How much is shown depends on the initial action,
-or context.  Valid contexts are
-
-  agenda         when exposing an entry from the agenda
-  org-goto       when using the command `org-goto' (`\\[org-goto]')
-  occur-tree     when using the command `org-occur' (`\\[org-sparse-tree] /')
-  tags-tree      when constructing a sparse tree based on tags matches
-  link-search    when exposing search matches associated with a link
-  mark-goto      when exposing the jump goal of a mark
-  bookmark-jump  when exposing a bookmark location
-  isearch        when exiting from an incremental search
-  default        default for all contexts not set explicitly
-
-Allowed visibility spans are
-
-  minimal        show current headline; if point is not on headline,
-                 also show entry
-
-  local          show current headline, entry and next headline
-
-  ancestors      show current headline and its direct ancestors; if
-                 point is not on headline, also show entry
-
-  lineage        show current headline, its direct ancestors and all
-                 their children; if point is not on headline, also show
-                 entry and first child
-
-  tree           show current headline, its direct ancestors and all
-                 their children; if point is not on headline, also show
-                 entry and all children
-
-  canonical      show current headline, its direct ancestors along with
-                 their entries and children; if point is not located on
-                 the headline, also show current entry and all children
-
-As special cases, a nil or t value means show all contexts in
-`minimal' or `canonical' view, respectively.
-
-Some views can make displayed information very compact, but also
-make it harder to edit the location of the match.  In such
-a case, use the command `org-reveal' (`\\[org-reveal]') to show
-more context."
-  :group 'org-reveal-location
-  :version "26.1"
-  :package-version '(Org . "9.0")
-  :type '(choice
-	  (const :tag "Canonical" t)
-	  (const :tag "Minimal" nil)
-	  (repeat :greedy t :tag "Individual contexts"
-		  (cons
-		   (choice :tag "Context"
-			   (const agenda)
-			   (const org-goto)
-			   (const occur-tree)
-			   (const tags-tree)
-			   (const link-search)
-			   (const mark-goto)
-			   (const bookmark-jump)
-			   (const isearch)
-			   (const default))
-		   (choice :tag "Detail level"
-			   (const minimal)
-			   (const local)
-			   (const ancestors)
-			   (const lineage)
-			   (const tree)
-			   (const canonical))))))
-
 (defcustom org-indirect-buffer-display 'other-window
   "How should indirect tree buffers be displayed?
 
@@ -1677,29 +1598,6 @@ OK to kill that hidden subtree.  When nil, kill without remorse."
   "Non-nil means, make `C-o' insert a row in tables."
   :group 'org-edit-structure
   :type 'boolean)
-
-(defcustom org-catch-invisible-edits nil
-  "Check if in invisible region before inserting or deleting a character.
-Valid values are:
-
-nil              Do not check, so just do invisible edits.
-error            Throw an error and do nothing.
-show             Make point visible, and do the requested edit.
-show-and-error   Make point visible, then throw an error and abort the edit.
-smart            Make point visible, and do insertion/deletion if it is
-                 adjacent to visible text and the change feels predictable.
-                 Never delete a previously invisible character or add in the
-                 middle or right after an invisible region.  Basically, this
-                 allows insertion and backward-delete right before ellipses.
-                 FIXME: maybe in this case we should not even show?"
-  :group 'org-edit-structure
-  :version "24.1"
-  :type '(choice
-	  (const :tag "Do not check" nil)
-	  (const :tag "Throw error when trying to edit" error)
-	  (const :tag "Unhide, but do not do the edit" show-and-error)
-	  (const :tag "Show invisible part and do the edit" show)
-	  (const :tag "Be smart and do the right thing" smart)))
 
 (defcustom org-yank-folded-subtrees t
   "Non-nil means when yanking subtrees, fold them.
@@ -3970,6 +3868,19 @@ Otherwise, these types are allowed:
   :package-version '(Org . "8.3")
   :group 'org-sparse-trees)
 
+(defun org-fold-hide-archived-subtrees (beg end)
+  "Re-hide all archived subtrees after a visibility state change."
+  (org-with-wide-buffer
+   (let ((case-fold-search nil)
+	 (re (concat org-outline-regexp-bol ".*:" org-archive-tag ":")))
+     (goto-char beg)
+     ;; Include headline point is currently on.
+     (beginning-of-line)
+     (while (and (< (point) end) (re-search-forward re end t))
+       (when (member org-archive-tag (org-get-tags nil t))
+	 (org-fold-subtree t)
+	 (org-end-of-subtree t))))))
+
 (defun org-cycle-hide-archived-subtrees (state)
   "Re-hide all archived subtrees after a visibility state change.
 STATE should be one of the symbols listed in the docstring of
@@ -3980,7 +3891,7 @@ STATE should be one of the symbols listed in the docstring of
       (let* ((globalp (memq state '(contents all)))
              (beg (if globalp (point-min) (point)))
              (end (if globalp (point-max) (org-end-of-subtree t))))
-	(org-hide-archived-subtrees beg end)
+	(org-fold-hide-archived-subtrees beg end)
 	(goto-char beg)
 	(when (looking-at-p (concat ".*:" org-archive-tag ":"))
 	  (message "%s" (substitute-command-keys
@@ -3993,27 +3904,6 @@ STATE should be one of the symbols listed in the docstring of
   (setq this-command 'org-cycle)
   (let ((org-cycle-open-archived-trees t))
     (call-interactively 'org-cycle)))
-
-(defun org-hide-archived-subtrees (beg end)
-  "Re-hide all archived subtrees after a visibility state change."
-  (org-with-wide-buffer
-   (let ((case-fold-search nil)
-	 (re (concat org-outline-regexp-bol ".*:" org-archive-tag ":")))
-     (goto-char beg)
-     ;; Include headline point is currently on.
-     (beginning-of-line)
-     (while (and (< (point) end) (re-search-forward re end t))
-       (when (member org-archive-tag (org-get-tags nil t))
-	 (org-flag-subtree t)
-	 (org-end-of-subtree t))))))
-
-(defun org-flag-subtree (flag)
-  (save-excursion
-    (org-back-to-heading t)
-    (org-flag-region (line-end-position)
-		     (progn (org-end-of-subtree t) (point))
-		     flag
-		     'outline)))
 
 (defalias 'org-advertized-archive-subtree 'org-archive-subtree)
 
@@ -4790,7 +4680,7 @@ The following commands are available:
   (org-load-modules-maybe)
   (org-install-agenda-files-menu)
   (when org-link-descriptive (add-to-invisibility-spec '(org-link)))
-  (add-to-invisibility-spec '(org-hide-block . t))
+  (org-fold-initialize)
   (setq-local outline-regexp org-outline-regexp)
   (setq-local outline-level 'org-outline-level)
   (setq bidi-paragraph-direction 'left-to-right)
@@ -4895,7 +4785,7 @@ The following commands are available:
 	t))
      (when org-startup-with-inline-images (org-display-inline-images))
      (when org-startup-with-latex-preview (org-latex-preview '(16)))
-     (unless org-inhibit-startup-visibility-stuff (org-set-startup-visibility))
+     (unless org-inhibit-startup-visibility-stuff (org-cycle-set-startup-visibility))
      (when org-startup-truncated (setq truncate-lines t))
      (when org-startup-numerated (require 'org-num) (org-num-mode 1))
      (when org-startup-indented (require 'org-indent) (org-indent-mode 1))))
@@ -5379,8 +5269,8 @@ by a #."
 	(end-re "\\(\\\\\\]\\|\\(#\\+end_\\|\\\\end{\\)\\S-+\\)")
 	(extend (lambda (r1 r2 dir)
 		  (let ((re (replace-regexp-in-string "\\(begin\\|end\\)" r1
-			     (replace-regexp-in-string "[][]" r2
-			      (match-string-no-properties 0)))))
+						      (replace-regexp-in-string "[][]" r2
+										(match-string-no-properties 0)))))
 		    (re-search-forward (regexp-quote re) nil t dir)))))
     (save-match-data
       (save-excursion
@@ -5727,35 +5617,56 @@ needs to be inserted at a specific position in the font-lock sequence.")
       (decompose-region (point-min) (point-max))
       (message "Entities are now displayed as plain text"))))
 
-(defvar-local org-custom-properties-overlays nil
-  "List of overlays used for custom properties.")
+(defvar-local org-custom-properties-hidden-p nil
+  "Non-nil when custom properties are hidden.")
+
+(defcustom org-custom-properties-hide-emptied-drawers nil
+  "Non-nil means that drawers containing only `org-custom-properties' will be hidden together with the properties."
+  :group 'org
+  :type '(choice
+	  (const :tag "Don't hide emptied drawers" nil)
+	  (const :tag "Hide emptied drawers" t)))
 
 (defun org-toggle-custom-properties-visibility ()
   "Display or hide properties in `org-custom-properties'."
   (interactive)
-  (if org-custom-properties-overlays
-      (progn (mapc #'delete-overlay org-custom-properties-overlays)
-	     (setq org-custom-properties-overlays nil))
+  (require 'org-macs)
+  (org-fold-add-folding-spec 'org-hide-custom-property nil 'no-ellipsis)
+  (if org-custom-properties-hidden-p
+      (let (match)
+	(setq org-custom-properties-hidden-p nil)
+	(org-with-wide-buffer
+         (goto-char (point-min))
+         (with-silent-modifications
+           (while (setq match (org-fold-search-forward 'org-hide-custom-property))
+             (org-fold-region (prop-match-beginning match)
+			      (prop-match-end match)
+			      nil 'org-hide-custom-property)))))
     (when org-custom-properties
+      (setq org-custom-properties-hidden-p t)
       (org-with-wide-buffer
-       (goto-char (point-min))
-       (let ((regexp (org-re-property (regexp-opt org-custom-properties) t t)))
+       (let* ((regexp (org-re-property (regexp-opt org-custom-properties) t t))
+	      (regexp-drawer (format "%s\n\\(?:%s\\)+\n%s"
+				     (replace-regexp-in-string "\\$$" "" org-drawer-regexp)
+                                     (replace-regexp-in-string "\\(^\\^\\|\\$$\\)" "" regexp)
+                                     (replace-regexp-in-string "^\\^" "" org-property-end-re))))
+         (when org-custom-properties-hide-emptied-drawers
+	   (goto-char (point-min))
+           (while (re-search-forward regexp-drawer nil t)
+             (with-silent-modifications
+               (org-fold-region (1- (match-beginning 0)) (match-end 0) t 'org-hide-custom-property))))
+         (goto-char (point-min))
 	 (while (re-search-forward regexp nil t)
 	   (let ((end (cdr (save-match-data (org-get-property-block)))))
 	     (when (and end (< (point) end))
 	       ;; Hide first custom property in current drawer.
-	       (let ((o (make-overlay (match-beginning 0) (1+ (match-end 0)))))
-		 (overlay-put o 'invisible t)
-		 (overlay-put o 'org-custom-property t)
-		 (push o org-custom-properties-overlays))
-	       ;; Hide additional custom properties in the same drawer.
-	       (while (re-search-forward regexp end t)
-		 (let ((o (make-overlay (match-beginning 0) (1+ (match-end 0)))))
-		   (overlay-put o 'invisible t)
-		   (overlay-put o 'org-custom-property t)
-		   (push o org-custom-properties-overlays)))))
-	   ;; Each entry is limited to a single property drawer.
-	   (outline-next-heading)))))))
+	       (with-silent-modifications
+		 (org-fold-region (match-beginning 0) (1+ (match-end 0)) t 'org-hide-custom-property)
+		 ;; Hide additional custom properties in the same drawer.
+		 (while (re-search-forward regexp end t)
+		   (org-fold-region (match-beginning 0) (1+ (match-end 0)) t 'org-hide-custom-property))))))
+	 ;; Each entry is limited to a single property drawer.
+	 (outline-next-heading))))))
 
 (defun org-fontify-entities (limit)
   "Find an entity to fontify."
@@ -5971,807 +5882,10 @@ open and agenda-wise Org files."
 	(set-window-start window (line-beginning-position))))))
 
 
-;;; Visibility (headlines, blocks, drawers)
 
-;;;; Headlines visibility
-
-(defun org-show-entry ()
-  "Show the body directly following its heading.
-Show the heading too, if it is currently invisible."
-  (interactive)
-  (save-excursion
-    (org-back-to-heading-or-point-min t)
-    (org-flag-region
-     (line-end-position 0)
-     (save-excursion
-       (if (re-search-forward
-	    (concat "[\r\n]\\(" org-outline-regexp "\\)") nil t)
-	   (match-beginning 1)
-	 (point-max)))
-     nil
-     'outline)
-    (org-cycle-hide-drawers 'children)))
-
-(defun org-hide-entry ()
-  "Hide the body directly following its heading."
-  (interactive)
-  (save-excursion
-    (org-back-to-heading-or-point-min t)
-    (when (org-at-heading-p) (forward-line))
-    (org-flag-region
-     (line-end-position 0)
-     (save-excursion
-       (if (re-search-forward
-	    (concat "[\r\n]" org-outline-regexp) nil t)
-           (line-end-position 0)
-	 (point-max)))
-     t
-     'outline)))
-
-(defun org-show-children (&optional level)
-  "Show all direct subheadings of this heading.
-Prefix arg LEVEL is how many levels below the current level
-should be shown.  Default is enough to cause the following
-heading to appear."
-  (interactive "p")
-  (unless (org-before-first-heading-p)
-    (save-excursion
-      (org-with-limited-levels (org-back-to-heading t))
-      (let* ((current-level (funcall outline-level))
-	     (max-level (org-get-valid-level
-			 current-level
-			 (if level (prefix-numeric-value level) 1)))
-	     (end (save-excursion (org-end-of-subtree t t)))
-	     (regexp-fmt "^\\*\\{%d,%s\\}\\(?: \\|$\\)")
-	     (past-first-child nil)
-	     ;; Make sure to skip inlinetasks.
-	     (re (format regexp-fmt
-			 current-level
-			 (cond
-			  ((not (featurep 'org-inlinetask)) "")
-			  (org-odd-levels-only (- (* 2 org-inlinetask-min-level)
-						  3))
-			  (t (1- org-inlinetask-min-level))))))
-	;; Display parent heading.
-	(org-flag-heading nil)
-	(forward-line)
-	;; Display children.  First child may be deeper than expected
-	;; MAX-LEVEL.  Since we want to display it anyway, adjust
-	;; MAX-LEVEL accordingly.
-	(while (re-search-forward re end t)
-	  (unless past-first-child
-	    (setq re (format regexp-fmt
-			     current-level
-			     (max (funcall outline-level) max-level)))
-	    (setq past-first-child t))
-	  (org-flag-heading nil))))))
-
-(defun org-show-subtree ()
-  "Show everything after this heading at deeper levels."
-  (interactive)
-  (org-flag-region
-   (point) (save-excursion (org-end-of-subtree t t)) nil 'outline))
-
-;;;; Blocks and drawers visibility
-
-(defun org--hide-wrapper-toggle (element category force no-error)
-  "Toggle visibility for ELEMENT.
-
-ELEMENT is a block or drawer type parsed element.  CATEGORY is
-either `block' or `drawer'.  When FORCE is `off', show the block
-or drawer.  If it is non-nil, hide it unconditionally.  Throw an
-error when not at a block or drawer, unless NO-ERROR is non-nil.
-
-Return a non-nil value when toggling is successful."
-  (let ((type (org-element-type element)))
-    (cond
-     ((memq type
-	    (pcase category
-	      (`drawer '(drawer property-drawer))
-	      (`block '(center-block
-			comment-block dynamic-block example-block export-block
-			quote-block special-block src-block verse-block))
-	      (_ (error "Unknown category: %S" category))))
-      (let* ((post (org-element-property :post-affiliated element))
-	     (start (save-excursion
-		      (goto-char post)
-		      (line-end-position)))
-	     (end (save-excursion
-		    (goto-char (org-element-property :end element))
-		    (skip-chars-backward " \t\n")
-		    (line-end-position))))
-	;; Do nothing when not before or at the block opening line or
-	;; at the block closing line.
-	(unless (let ((eol (line-end-position)))
-		  (and (> eol start) (/= eol end)))
-	  (let* ((spec (if (eq category 'block) 'org-hide-block 'outline))
-		 (flag
-		  (cond ((eq force 'off) nil)
-			(force t)
-			((eq spec (get-char-property start 'invisible)) nil)
-			(t t))))
-	    (org-flag-region start end flag spec))
-	  ;; When the block is hidden away, make sure point is left in
-	  ;; a visible part of the buffer.
-	  (when (invisible-p (max (1- (point)) (point-min)))
-	    (goto-char post))
-	  ;; Signal success.
-	  t)))
-     (no-error nil)
-     (t
-      (user-error (if (eq category 'drawer)
-		      "Not at a drawer"
-		    "Not at a block"))))))
-
-(defun org-hide-block-toggle (&optional force no-error element)
-  "Toggle the visibility of the current block.
-
-When optional argument FORCE is `off', make block visible.  If it
-is non-nil, hide it unconditionally.  Throw an error when not at
-a block, unless NO-ERROR is non-nil.  When optional argument
-ELEMENT is provided, consider it instead of the current block.
-
-Return a non-nil value when toggling is successful."
-  (interactive)
-  (org--hide-wrapper-toggle
-   (or element (org-element-at-point)) 'block force no-error))
-
-(defun org-hide-drawer-toggle (&optional force no-error element)
-  "Toggle the visibility of the current drawer.
-
-When optional argument FORCE is `off', make drawer visible.  If
-it is non-nil, hide it unconditionally.  Throw an error when not
-at a drawer, unless NO-ERROR is non-nil.  When optional argument
-ELEMENT is provided, consider it instead of the current drawer.
-
-Return a non-nil value when toggling is successful."
-  (interactive)
-  (org--hide-wrapper-toggle
-   (or element (org-element-at-point)) 'drawer force no-error))
-
-(defun org-hide-block-all ()
-  "Fold all blocks in the current buffer."
-  (interactive)
-  (org-show-all '(blocks))
-  (org-block-map 'org-hide-block-toggle))
-
-(defun org-hide-drawer-all ()
-  "Fold all drawers in the current buffer."
-  (save-excursion
-    (goto-char (point-min))
-    (while (re-search-forward org-drawer-regexp nil t)
-      (let* ((pair (get-char-property-and-overlay (line-beginning-position)
-						  'invisible))
-	     (o (cdr-safe pair)))
-	(if (overlayp o) (goto-char (overlay-end o)) ;invisible drawer
-	  (pcase (get-char-property-and-overlay (point) 'invisible)
-	    (`(outline . ,o) (goto-char (overlay-end o))) ;already folded
-	    (_
-	     (let* ((drawer (org-element-at-point))
-		    (type (org-element-type drawer)))
-	       (when (memq type '(drawer property-drawer))
-		 (org-hide-drawer-toggle t nil drawer)
-		 ;; Make sure to skip drawer entirely or we might flag it
-		 ;; another time when matching its ending line with
-		 ;; `org-drawer-regexp'.
-		 (goto-char (org-element-property :end drawer)))))))))))
-
-(defun org-cycle-hide-drawers (state)
-  "Re-hide all drawers after a visibility state change.
-STATE should be one of the symbols listed in the docstring of
-`org-cycle-hook'."
-  (when (and (derived-mode-p 'org-mode)
-	     (not (memq state '(overview folded contents))))
-    (let* ((global? (eq state 'all))
-	   (beg (if global? (point-min) (line-beginning-position)))
-	   (end (cond (global? (point-max))
-		      ((eq state 'children) (org-entry-end-position))
-		      (t (save-excursion (org-end-of-subtree t t))))))
-      (save-excursion
-	(goto-char beg)
-	(while (re-search-forward org-drawer-regexp end t)
-	  (pcase (get-char-property-and-overlay (point) 'invisible)
-	    ;; Do not fold already folded drawers.
-	    (`(outline . ,o) (goto-char (overlay-end o)))
-	    (_
-	     (let ((drawer (org-element-at-point)))
-	       (when (memq (org-element-type drawer) '(drawer property-drawer))
-		 (org-hide-drawer-toggle t nil drawer)
-		 ;; Make sure to skip drawer entirely or we might flag
-		 ;; it another time when matching its ending line with
-		 ;; `org-drawer-regexp'.
-		 (goto-char (org-element-property :end drawer)))))))))))
-
-;;;; Visibility cycling
-
-(defvar-local org-cycle-global-status nil)
-(put 'org-cycle-global-status 'org-state t)
-(defvar-local org-cycle-subtree-status nil)
-(put 'org-cycle-subtree-status 'org-state t)
-
-(defun org-show-all (&optional types)
-  "Show all contents in the visible part of the buffer.
-By default, the function expands headings, blocks and drawers.
-When optional argument TYPE is a list of symbols among `blocks',
-`drawers' and `headings', to only expand one specific type."
-  (interactive)
-  (let ((types (or types '(blocks drawers headings))))
-    (when (memq 'blocks types)
-      (org-flag-region (point-min) (point-max) nil 'org-hide-block))
-    (cond
-     ;; Fast path.  Since headings and drawers share the same
-     ;; invisible spec, clear everything in one go.
-     ((and (memq 'headings types)
-	   (memq 'drawers types))
-      (org-flag-region (point-min) (point-max) nil 'outline))
-     ((memq 'headings types)
-      (org-flag-region (point-min) (point-max) nil 'outline)
-      (org-cycle-hide-drawers 'all))
-     ((memq 'drawers types)
-      (save-excursion
-	(goto-char (point-min))
-	(while (re-search-forward org-drawer-regexp nil t)
-	  (let* ((pair (get-char-property-and-overlay (line-beginning-position)
-						      'invisible))
-		 (o (cdr-safe pair)))
-	    (if (overlayp o) (goto-char (overlay-end o))
-	      (pcase (get-char-property-and-overlay (point) 'invisible)
-		(`(outline . ,o)
-		 (goto-char (overlay-end o))
-		 (delete-overlay o))
-		(_ nil))))))))))
-
-;;;###autoload
-(defun org-cycle (&optional arg)
-  "TAB-action and visibility cycling for Org mode.
-
-This is the command invoked in Org mode by the `TAB' key.  Its main
-purpose is outline visibility cycling, but it also invokes other actions
-in special contexts.
-
-When this function is called with a `\\[universal-argument]' prefix, rotate \
-the entire
-buffer through 3 states (global cycling)
-  1. OVERVIEW: Show only top-level headlines.
-  2. CONTENTS: Show all headlines of all levels, but no body text.
-  3. SHOW ALL: Show everything.
-
-With a `\\[universal-argument] \\[universal-argument]' prefix argument, \
-switch to the startup visibility,
-determined by the variable `org-startup-folded', and by any VISIBILITY
-properties in the buffer.
-
-With a `\\[universal-argument] \\[universal-argument] \
-\\[universal-argument]' prefix argument, show the entire buffer, including
-any drawers.
-
-When inside a table, re-align the table and move to the next field.
-
-When point is at the beginning of a headline, rotate the subtree started
-by this line through 3 different states (local cycling)
-  1. FOLDED:   Only the main headline is shown.
-  2. CHILDREN: The main headline and the direct children are shown.
-               From this state, you can move to one of the children
-               and zoom in further.
-  3. SUBTREE:  Show the entire subtree, including body text.
-If there is no subtree, switch directly from CHILDREN to FOLDED.
-
-When point is at the beginning of an empty headline and the variable
-`org-cycle-level-after-item/entry-creation' is set, cycle the level
-of the headline by demoting and promoting it to likely levels.  This
-speeds up creation document structure by pressing `TAB' once or several
-times right after creating a new headline.
-
-When there is a numeric prefix, go up to a heading with level ARG, do
-a `show-subtree' and return to the previous cursor position.  If ARG
-is negative, go up that many levels.
-
-When point is not at the beginning of a headline, execute the global
-binding for `TAB', which is re-indenting the line.  See the option
-`org-cycle-emulate-tab' for details.
-
-As a special case, if point is at the very beginning of the buffer, if
-there is no headline there, and if the variable `org-cycle-global-at-bob'
-is non-nil, this function acts as if called with prefix argument \
-\(`\\[universal-argument] TAB',
-same as `S-TAB') also when called without prefix argument."
-  (interactive "P")
-  (org-load-modules-maybe)
-  (unless (or (run-hook-with-args-until-success 'org-tab-first-hook)
-	      (and org-cycle-level-after-item/entry-creation
-		   (or (org-cycle-level)
-		       (org-cycle-item-indentation))))
-    (let* ((limit-level
-	    (or org-cycle-max-level
-		(and (boundp 'org-inlinetask-min-level)
-		     org-inlinetask-min-level
-		     (1- org-inlinetask-min-level))))
-	   (nstars
-	    (and limit-level
-		 (if org-odd-levels-only
-		     (1- (* 2 limit-level))
-		   limit-level)))
-	   (org-outline-regexp
-	    (format "\\*%s " (if nstars (format "\\{1,%d\\}" nstars) "+"))))
-      (cond
-       ((equal arg '(16))
-	(setq last-command 'dummy)
-	(org-set-startup-visibility)
-	(org-unlogged-message "Startup visibility, plus VISIBILITY properties"))
-       ((equal arg '(64))
-	(org-show-all)
-	(org-unlogged-message "Entire buffer visible, including drawers"))
-       ((equal arg '(4)) (org-cycle-internal-global))
-       ;; Show-subtree, ARG levels up from here.
-       ((integerp arg)
-	(save-excursion
-	  (org-back-to-heading)
-	  (outline-up-heading (if (< arg 0) (- arg)
-				(- (funcall outline-level) arg)))
-	  (org-show-subtree)))
-       ;; Global cycling at BOB: delegate to `org-cycle-internal-global'.
-       ((and org-cycle-global-at-bob
-	     (bobp)
-	     (not (looking-at org-outline-regexp)))
-	(let ((org-cycle-hook
-	       (remq 'org-optimize-window-after-visibility-change
-		     org-cycle-hook)))
-	  (org-cycle-internal-global)))
-       ;; Try CDLaTeX TAB completion.
-       ((org-try-cdlatex-tab))
-       ;; Inline task: delegate to `org-inlinetask-toggle-visibility'.
-       ((and (featurep 'org-inlinetask)
-	     (org-inlinetask-at-task-p)
-	     (or (bolp) (not (eq org-cycle-emulate-tab 'exc-hl-bol))))
-	(org-inlinetask-toggle-visibility))
-       (t
-	(let ((pos (point))
-	      (element (org-element-at-point)))
-	  (cond
-	   ;; Try toggling visibility for block at point.
-	   ((org-hide-block-toggle nil t element))
-	   ;; Try toggling visibility for drawer at point.
-	   ((org-hide-drawer-toggle nil t element))
-	   ;; Table: enter it or move to the next field.
-	   ((and (org-match-line "[ \t]*[|+]")
-		 (org-element-lineage element '(table) t))
-	    (if (and (eq 'table (org-element-type element))
-		     (eq 'table.el (org-element-property :type element)))
-		(message (substitute-command-keys "\\<org-mode-map>\
-Use `\\[org-edit-special]' to edit table.el tables"))
-	      (org-table-justify-field-maybe)
-	      (call-interactively #'org-table-next-field)))
-	   ((run-hook-with-args-until-success
-	     'org-tab-after-check-for-table-hook))
-	   ;; At an item/headline: delegate to `org-cycle-internal-local'.
-	   ((and (or (and org-cycle-include-plain-lists
-			  (let ((item (org-element-lineage element
-							   '(item plain-list)
-							   t)))
-			    (and item
-				 (= (line-beginning-position)
-				    (org-element-property :post-affiliated
-							  item)))))
-		     (org-match-line org-outline-regexp))
-		 (or (bolp) (not (eq org-cycle-emulate-tab 'exc-hl-bol))))
-	    (org-cycle-internal-local))
-	   ;; From there: TAB emulation and template completion.
-	   (buffer-read-only (org-back-to-heading))
-	   ((run-hook-with-args-until-success
-	     'org-tab-after-check-for-cycling-hook))
-	   ((run-hook-with-args-until-success
-	     'org-tab-before-tab-emulation-hook))
-	   ((and (eq org-cycle-emulate-tab 'exc-hl-bol)
-		 (or (not (bolp))
-		     (not (looking-at org-outline-regexp))))
-	    (call-interactively (global-key-binding (kbd "TAB"))))
-	   ((or (eq org-cycle-emulate-tab t)
-		(and (memq org-cycle-emulate-tab '(white whitestart))
-		     (save-excursion (beginning-of-line 1) (looking-at "[ \t]*"))
-		     (or (and (eq org-cycle-emulate-tab 'white)
-			      (= (match-end 0) (point-at-eol)))
-			 (and (eq org-cycle-emulate-tab 'whitestart)
-			      (>= (match-end 0) pos)))))
-	    (call-interactively (global-key-binding (kbd "TAB"))))
-	   (t
-	    (save-excursion
-	      (org-back-to-heading)
-	      (org-cycle))))))))))
-
-(defun org-cycle-internal-global ()
-  "Do the global cycling action."
-  ;; Hack to avoid display of messages for .org  attachments in Gnus
-  (let ((ga (string-match-p "\\*fontification" (buffer-name))))
-    (cond
-     ((and (eq last-command this-command)
-	   (eq org-cycle-global-status 'overview))
-      ;; We just created the overview - now do table of contents
-      ;; This can be slow in very large buffers, so indicate action
-      (run-hook-with-args 'org-pre-cycle-hook 'contents)
-      (unless ga (org-unlogged-message "CONTENTS..."))
-      (org-content)
-      (unless ga (org-unlogged-message "CONTENTS...done"))
-      (setq org-cycle-global-status 'contents)
-      (run-hook-with-args 'org-cycle-hook 'contents))
-
-     ((and (eq last-command this-command)
-	   (eq org-cycle-global-status 'contents))
-      ;; We just showed the table of contents - now show everything
-      (run-hook-with-args 'org-pre-cycle-hook 'all)
-      (org-show-all '(headings blocks))
-      (unless ga (org-unlogged-message "SHOW ALL"))
-      (setq org-cycle-global-status 'all)
-      (run-hook-with-args 'org-cycle-hook 'all))
-
-     (t
-      ;; Default action: go to overview
-      (run-hook-with-args 'org-pre-cycle-hook 'overview)
-      (org-overview)
-      (unless ga (org-unlogged-message "OVERVIEW"))
-      (setq org-cycle-global-status 'overview)
-      (run-hook-with-args 'org-cycle-hook 'overview)))))
-
+;; FIXME: It was in the middle of visibility section. Where should it go to?
 (defvar org-called-with-limited-levels nil
   "Non-nil when `org-with-limited-levels' is currently active.")
-
-(defun org-cycle-internal-local ()
-  "Do the local cycling action."
-  (let ((goal-column 0) eoh eol eos has-children children-skipped struct)
-    ;; First, determine end of headline (EOH), end of subtree or item
-    ;; (EOS), and if item or heading has children (HAS-CHILDREN).
-    (save-excursion
-      (if (org-at-item-p)
-	  (progn
-	    (beginning-of-line)
-	    (setq struct (org-list-struct))
-	    (setq eoh (point-at-eol))
-	    (setq eos (org-list-get-item-end-before-blank (point) struct))
-	    (setq has-children (org-list-has-child-p (point) struct)))
-	(org-back-to-heading)
-	(setq eoh (save-excursion (outline-end-of-heading) (point)))
-	(setq eos (save-excursion
-		    (org-end-of-subtree t t)
-		    (unless (eobp) (forward-char -1))
-		    (point)))
-	(setq has-children
-	      (or
-	       (save-excursion
-		 (let ((level (funcall outline-level)))
-		   (outline-next-heading)
-		   (and (org-at-heading-p t)
-			(> (funcall outline-level) level))))
-	       (and (eq org-cycle-include-plain-lists 'integrate)
-		    (save-excursion
-		      (org-list-search-forward (org-item-beginning-re) eos t))))))
-      ;; Determine end invisible part of buffer (EOL)
-      (beginning-of-line 2)
-      (while (and (not (eobp))		;this is like `next-line'
-		  (get-char-property (1- (point)) 'invisible))
-	(goto-char (next-single-char-property-change (point) 'invisible))
-	(and (eolp) (beginning-of-line 2)))
-      (setq eol (point)))
-    ;; Find out what to do next and set `this-command'
-    (cond
-     ((= eos eoh)
-      ;; Nothing is hidden behind this heading
-      (unless (org-before-first-heading-p)
-	(run-hook-with-args 'org-pre-cycle-hook 'empty))
-      (org-unlogged-message "EMPTY ENTRY")
-      (setq org-cycle-subtree-status nil)
-      (save-excursion
-	(goto-char eos)
-	(outline-next-heading)
-	(when (org-invisible-p) (org-flag-heading nil))))
-     ((and (>= eol eos)
-	   (or has-children
-	       (not (setq children-skipped
-			  org-cycle-skip-children-state-if-no-children))))
-      ;; Entire subtree is hidden in one line: children view
-      (unless (org-before-first-heading-p)
-	(run-hook-with-args 'org-pre-cycle-hook 'children))
-      (if (org-at-item-p)
-	  (org-list-set-item-visibility (point-at-bol) struct 'children)
-	(org-show-entry)
-	(org-with-limited-levels (org-show-children))
-	(org-show-set-visibility 'canonical)
-	;; Fold every list in subtree to top-level items.
-	(when (eq org-cycle-include-plain-lists 'integrate)
-	  (save-excursion
-	    (org-back-to-heading)
-	    (while (org-list-search-forward (org-item-beginning-re) eos t)
-	      (beginning-of-line 1)
-	      (let* ((struct (org-list-struct))
-		     (prevs (org-list-prevs-alist struct))
-		     (end (org-list-get-bottom-point struct)))
-		(dolist (e (org-list-get-all-items (point) struct prevs))
-		  (org-list-set-item-visibility e struct 'folded))
-		(goto-char (if (< end eos) end eos)))))))
-      (org-unlogged-message "CHILDREN")
-      (save-excursion
-	(goto-char eos)
-	(outline-next-heading)
-	(when (org-invisible-p) (org-flag-heading nil)))
-      (setq org-cycle-subtree-status 'children)
-      (unless (org-before-first-heading-p)
-	(run-hook-with-args 'org-cycle-hook 'children)))
-     ((or children-skipped
-	  (and (eq last-command this-command)
-	       (eq org-cycle-subtree-status 'children)))
-      ;; We just showed the children, or no children are there,
-      ;; now show everything.
-      (unless (org-before-first-heading-p)
-	(run-hook-with-args 'org-pre-cycle-hook 'subtree))
-      (org-flag-region eoh eos nil 'outline)
-      (org-unlogged-message
-       (if children-skipped "SUBTREE (NO CHILDREN)" "SUBTREE"))
-      (setq org-cycle-subtree-status 'subtree)
-      (unless (org-before-first-heading-p)
-	(run-hook-with-args 'org-cycle-hook 'subtree)))
-     (t
-      ;; Default action: hide the subtree.
-      (run-hook-with-args 'org-pre-cycle-hook 'folded)
-      (org-flag-region eoh eos t 'outline)
-      (org-unlogged-message "FOLDED")
-      (setq org-cycle-subtree-status 'folded)
-      (unless (org-before-first-heading-p)
-	(run-hook-with-args 'org-cycle-hook 'folded))))))
-
-;;;###autoload
-(defun org-global-cycle (&optional arg)
-  "Cycle the global visibility.  For details see `org-cycle'.
-With `\\[universal-argument]' prefix ARG, switch to startup visibility.
-With a numeric prefix, show all headlines up to that level."
-  (interactive "P")
-  (cond
-   ((integerp arg)
-    (org-content arg)
-    (setq org-cycle-global-status 'contents))
-   ((equal arg '(4))
-    (org-set-startup-visibility)
-    (org-unlogged-message "Startup visibility, plus VISIBILITY properties."))
-   (t
-    (org-cycle '(4)))))
-
-(defun org-set-startup-visibility ()
-  "Set the visibility required by startup options and properties."
-  (cond
-   ((eq org-startup-folded t)
-    (org-overview))
-   ((eq org-startup-folded 'content)
-    (org-content))
-   ((or (eq org-startup-folded 'showeverything)
-	(eq org-startup-folded nil))
-    (org-show-all)))
-  (unless (eq org-startup-folded 'showeverything)
-    (when org-hide-block-startup (org-hide-block-all))
-    (org-set-visibility-according-to-property)
-    (org-cycle-hide-archived-subtrees 'all)
-    (org-cycle-hide-drawers 'all)
-    (org-cycle-show-empty-lines t)))
-
-(defun org-set-visibility-according-to-property ()
-  "Switch subtree visibility according to VISIBILITY property."
-  (interactive)
-  (let ((regexp (org-re-property "VISIBILITY")))
-    (org-with-point-at 1
-      (while (re-search-forward regexp nil t)
-	(let ((state (match-string 3)))
-	  (if (not (org-at-property-p)) (outline-next-heading)
-	    (save-excursion
-	      (org-back-to-heading t)
-	      (org-flag-subtree t)
-	      (org-reveal)
-	      (pcase state
-		("folded"
-		 (org-flag-subtree t))
-		("children"
-		 (org-show-hidden-entry)
-		 (org-show-children))
-		("content"
-		 (save-excursion
-		   (save-restriction
-		     (org-narrow-to-subtree)
-		     (org-content))))
-		((or "all" "showall")
-		 (outline-show-subtree))
-		(_ nil)))
-	    (org-end-of-subtree)))))))
-
-(defun org-overview ()
-  "Switch to overview mode, showing only top-level headlines."
-  (interactive)
-  (org-show-all '(headings drawers))
-  (save-excursion
-    (goto-char (point-min))
-    (when (re-search-forward org-outline-regexp-bol nil t)
-      (let* ((last (line-end-position))
-             (level (- (match-end 0) (match-beginning 0) 1))
-             (regexp (format "^\\*\\{1,%d\\} " level)))
-        (while (re-search-forward regexp nil :move)
-          (org-flag-region last (line-end-position 0) t 'outline)
-          (setq last (line-end-position))
-          (setq level (- (match-end 0) (match-beginning 0) 1))
-          (setq regexp (format "^\\*\\{1,%d\\} " level)))
-        (org-flag-region last (point) t 'outline)))))
-
-(defun org-content (&optional arg)
-  "Show all headlines in the buffer, like a table of contents.
-With numerical argument N, show content up to level N."
-  (interactive "p")
-  (org-show-all '(headings drawers))
-  (save-excursion
-    (goto-char (point-max))
-    (let ((regexp (if (and (wholenump arg) (> arg 0))
-                      (format "^\\*\\{1,%d\\} " arg)
-                    "^\\*+ "))
-          (last (point)))
-      (while (re-search-backward regexp nil t)
-        (org-flag-region (line-end-position) last t 'outline)
-        (setq last (line-end-position 0))))))
-
-(defvar org-scroll-position-to-restore nil
-  "Temporarily store scroll position to restore.")
-(defun org-optimize-window-after-visibility-change (state)
-  "Adjust the window after a change in outline visibility.
-This function is the default value of the hook `org-cycle-hook'."
-  (when (get-buffer-window (current-buffer))
-    (cond
-     ((eq state 'content)  nil)
-     ((eq state 'all)      nil)
-     ((and (eq state 'folded) (eq last-command this-command))
-      (set-window-start nil org-scroll-position-to-restore))
-     ((eq state 'folded) nil)
-     ((eq state 'children)
-      (setq org-scroll-position-to-restore (window-start))
-      (or (org-subtree-end-visible-p) (recenter 1)))
-     ((eq state 'subtree)
-      (when (not (eq last-command this-command))
-	(setq org-scroll-position-to-restore (window-start)))
-      (or (org-subtree-end-visible-p) (recenter 1))))))
-
-(defun org-clean-visibility-after-subtree-move ()
-  "Fix visibility issues after moving a subtree."
-  ;; First, find a reasonable region to look at:
-  ;; Start two siblings above, end three below
-  (let* ((beg (save-excursion
-		(and (org-get-last-sibling)
-		     (org-get-last-sibling))
-		(point)))
-	 (end (save-excursion
-		(and (org-get-next-sibling)
-		     (org-get-next-sibling)
-		     (org-get-next-sibling))
-		(if (org-at-heading-p)
-		    (point-at-eol)
-		  (point))))
-	 (level (looking-at "\\*+"))
-	 (re (when level (concat "^" (regexp-quote (match-string 0)) " "))))
-    (save-excursion
-      (save-restriction
-	(narrow-to-region beg end)
-	(when re
-	  ;; Properly fold already folded siblings
-	  (goto-char (point-min))
-	  (while (re-search-forward re nil t)
-	    (when (and (not (org-invisible-p))
-		       (org-invisible-p (line-end-position)))
-	      (outline-hide-entry))))
-	(org-cycle-hide-drawers 'all)
-	(org-cycle-show-empty-lines 'overview)))))
-
-(defun org-cycle-show-empty-lines (state)
-  "Show empty lines above all visible headlines.
-The region to be covered depends on STATE when called through
-`org-cycle-hook'.  Lisp program can use t for STATE to get the
-entire buffer covered.  Note that an empty line is only shown if there
-are at least `org-cycle-separator-lines' empty lines before the headline."
-  (when (/= org-cycle-separator-lines 0)
-    (save-excursion
-      (let* ((n (abs org-cycle-separator-lines))
-	     (re (cond
-		  ((= n 1) "\\(\n[ \t]*\n\\*+\\) ")
-		  ((= n 2) "^[ \t]*\\(\n[ \t]*\n\\*+\\) ")
-		  (t (let ((ns (number-to-string (- n 2))))
-		       (concat "^\\(?:[ \t]*\n\\)\\{" ns "," ns "\\}"
-			       "[ \t]*\\(\n[ \t]*\n\\*+\\) ")))))
-	     beg end)
-	(cond
-	 ((memq state '(overview contents t))
-	  (setq beg (point-min) end (point-max)))
-	 ((memq state '(children folded))
-	  (setq beg (point)
-		end (progn (org-end-of-subtree t t)
-			   (line-beginning-position 2)))))
-	(when beg
-	  (goto-char beg)
-	  (while (re-search-forward re end t)
-	    (unless (get-char-property (match-end 1) 'invisible)
-	      (let ((e (match-end 1))
-		    (b (if (>= org-cycle-separator-lines 0)
-			   (match-beginning 1)
-			 (save-excursion
-			   (goto-char (match-beginning 0))
-			   (skip-chars-backward " \t\n")
-			   (line-end-position)))))
-		(org-flag-region b e nil 'outline))))))))
-  ;; Never hide empty lines at the end of the file.
-  (save-excursion
-    (goto-char (point-max))
-    (outline-previous-heading)
-    (outline-end-of-heading)
-    (when (and (looking-at "[ \t\n]+")
-	       (= (match-end 0) (point-max)))
-      (org-flag-region (point) (match-end 0) nil 'outline))))
-
-;;;; Reveal point location
-
-(defun org-show-context (&optional key)
-  "Make sure point and context are visible.
-Optional argument KEY, when non-nil, is a symbol.  See
-`org-show-context-detail' for allowed values and how much is to
-be shown."
-  (org-show-set-visibility
-   (cond ((symbolp org-show-context-detail) org-show-context-detail)
-	 ((cdr (assq key org-show-context-detail)))
-	 (t (cdr (assq 'default org-show-context-detail))))))
-
-(defun org-show-set-visibility (detail)
-  "Set visibility around point according to DETAIL.
-DETAIL is either nil, `minimal', `local', `ancestors', `lineage',
-`tree', `canonical' or t.  See `org-show-context-detail' for more
-information."
-  ;; Show current heading and possibly its entry, following headline
-  ;; or all children.
-  (if (and (org-at-heading-p) (not (eq detail 'local)))
-      (org-flag-heading nil)
-    (org-show-entry)
-    ;; If point is hidden within a drawer or a block, make sure to
-    ;; expose it.
-    (dolist (o (overlays-at (point)))
-      (when (memq (overlay-get o 'invisible) '(org-hide-block outline))
-	(delete-overlay o)))
-    (unless (org-before-first-heading-p)
-      (org-with-limited-levels
-       (cl-case detail
-	 ((tree canonical t) (org-show-children))
-	 ((nil minimal ancestors))
-	 (t (save-excursion
-	      (outline-next-heading)
-	      (org-flag-heading nil)))))))
-  ;; Show all siblings.
-  (when (eq detail 'lineage) (org-show-siblings))
-  ;; Show ancestors, possibly with their children.
-  (when (memq detail '(ancestors lineage tree canonical t))
-    (save-excursion
-      (while (org-up-heading-safe)
-	(org-flag-heading nil)
-	(when (memq detail '(canonical t)) (org-show-entry))
-	(when (memq detail '(tree canonical t)) (org-show-children))))))
-
-(defvar org-reveal-start-hook nil
-  "Hook run before revealing a location.")
-
-(defun org-reveal (&optional siblings)
-  "Show current entry, hierarchy above it, and the following headline.
-
-This can be used to show a consistent set of context around
-locations exposed with `org-show-context'.
-
-With optional argument SIBLINGS, on each level of the hierarchy all
-siblings are shown.  This repairs the tree structure to what it would
-look like when opened with hierarchical calls to `org-cycle'.
-
-With a \\[universal-argument] \\[universal-argument] prefix, \
-go to the parent and show the entire tree."
-  (interactive "P")
-  (run-hooks 'org-reveal-start-hook)
-  (cond ((equal siblings '(4)) (org-show-set-visibility 'canonical))
-	((equal siblings '(16))
-	 (save-excursion
-	   (when (org-up-heading-safe)
-	     (org-show-subtree)
-	     (run-hook-with-args 'org-cycle-hook 'subtree))))
-	(t (org-show-set-visibility 'lineage))))
 
 
 ;;; Indirect buffer display of subtrees
@@ -6841,7 +5955,7 @@ frame is not changed."
       (pop-to-buffer ibuf))
      (t (error "Invalid value")))
     (narrow-to-region beg end)
-    (org-show-all '(headings drawers blocks))
+    (org-fold-show-all '(headings drawers blocks))
     (goto-char pos)
     (run-hook-with-args 'org-cycle-hook 'all)
     (and (window-live-p cwin) (select-window cwin))))
@@ -6945,10 +6059,10 @@ unconditionally."
       ;; When INVISIBLE-OK is non-nil, ensure newly created headline
       ;; is visible.
       (unless invisible-ok
-	(pcase (get-char-property-and-overlay (point) 'invisible)
-	  (`(outline . ,o)
-	   (move-overlay o (overlay-start o) (line-end-position 0)))
-	  (_ nil))))
+	(cond
+	 ((eq (org-fold-get-folding-spec nil (line-beginning-position)) (org-fold-get-folding-spec-for-element 'headline))
+	  (org-fold-region (line-end-position 0) (line-end-position) nil (org-fold-get-folding-spec-for-element 'headline)))
+	 (t nil))))
      ;; At a headline...
      ((org-at-heading-p)
       (cond ((bolp)
@@ -7483,7 +6597,7 @@ case."
   (goto-char (point-min))
   ;; First check if there are no even levels
   (when (re-search-forward "^\\(\\*\\*\\)+ " nil t)
-    (org-show-set-visibility 'canonical)
+    (org-fold-show-set-visibility 'canonical)
     (error "Not all levels are odd in this file.  Conversion not possible"))
   (when (yes-or-no-p "Are you sure you want to globally change levels to odd-even? ")
     (let ((outline-regexp org-outline-regexp)
@@ -7546,9 +6660,8 @@ case."
      (setq txt (buffer-substring beg end))
      (org-save-markers-in-region beg end)
      (delete-region beg end)
-     (org-remove-empty-overlays-at beg)
-     (unless (= beg (point-min)) (org-flag-region (1- beg) beg nil 'outline))
-     (unless (bobp) (org-flag-region (1- (point)) (point) nil 'outline))
+     (unless (= beg (point-min)) (org-fold-region (1- beg) beg nil (org-fold-get-folding-spec-for-element 'headline)))
+     (unless (bobp) (org-fold-region (1- (point)) (point) nil (org-fold-get-folding-spec-for-element 'headline)))
      (and (not (bolp)) (looking-at "\n") (forward-char 1))
      (let ((bbb (point)))
        (insert-before-markers txt)
@@ -7559,9 +6672,9 @@ case."
      (org-skip-whitespace)
      (move-marker ins-point nil)
      (if folded
-	 (org-flag-subtree t)
-       (org-show-entry)
-       (org-show-children))
+	 (org-fold-subtree t)
+       (org-fold-show-entry)
+       (org-fold-show-children))
      (org-clean-visibility-after-subtree-move)
      ;; move back to the initial column we were at
      (move-to-column col))))
@@ -7708,7 +6821,7 @@ When REMOVE is non-nil, remove the subtree from the clipboard."
      (skip-chars-forward " \t\n\r")
      (setq beg (point))
      (when (and (org-invisible-p) visp)
-       (save-excursion (outline-show-heading)))
+       (save-excursion (org-fold-heading nil)))
      ;; Shift if necessary.
      (unless (= shift 0)
        (save-restriction
@@ -7725,7 +6838,7 @@ When REMOVE is non-nil, remove the subtree from the clipboard."
 		(equal org-subtree-clip (current-kill 0))
 		org-subtree-clip-folded)
        ;; The tree was folded before it was killed/copied
-       (org-flag-subtree t))
+       (org-fold-subtree t))
      (when for-yank (goto-char newend))
      (when remove (pop kill-ring)))))
 
@@ -7904,7 +7017,7 @@ with the original repeater."
 		  (insert template)
 		  (org-mode)
 		  (goto-char (point-min))
-		  (org-show-subtree)
+		  (org-fold-show-subtree)
 		  (and idprop (if org-clone-delete-id
 				  (org-entry-delete nil "ID")
 				(org-id-get-create t)))
@@ -8153,7 +7266,7 @@ function is being called interactively."
 		       (point))
 	    what "children")
       (goto-char start)
-      (outline-show-subtree)
+      (org-fold-show-subtree)
       (outline-next-heading))
      (t
       ;; we will sort the top-level entries in this file
@@ -8169,7 +7282,7 @@ function is being called interactively."
       (setq end (point-max))
       (setq what "top-level")
       (goto-char start)
-      (org-show-all '(headings drawers blocks))))
+      (org-fold-show-all '(headings drawers blocks))))
 
     (setq beg (point))
     (when (>= beg end) (goto-char start) (user-error "Nothing to sort"))
@@ -8469,12 +7582,13 @@ the whole buffer."
 			(org-end-of-subtree t t))
 		       ((outline-next-heading))
 		       ((point-max))))))
-      (if (symbolp tprop)
-	  ;; TPROP is a text property symbol.
-	  (put-text-property start end tprop p)
-	;; TPROP is an alist with (property . function) elements.
-	(pcase-dolist (`(,prop . ,f) tprop)
-	  (put-text-property start end prop (funcall f p)))))))
+      (with-silent-modifications
+	(if (symbolp tprop)
+	    ;; TPROP is a text property symbol.
+	    (put-text-property start end tprop p)
+	  ;; TPROP is an alist with (property . function) elements.
+	  (pcase-dolist (`(,prop . ,f) tprop)
+	    (put-text-property start end prop (funcall f p))))))))
 
 (defun org-refresh-category-properties ()
   "Refresh category text properties in the buffer."
@@ -8735,7 +7849,7 @@ If the file does not exist, throw an error."
       (funcall (cdr (assq 'file org-link-frame-setup)) file)
       (widen)
       (cond (line (org-goto-line line)
-		  (when (derived-mode-p 'org-mode) (org-reveal)))
+		  (when (derived-mode-p 'org-mode) (org-fold-reveal)))
 	    (search (condition-case err
 			(org-link-search search)
 		      ;; Save position before error-ing out so user
@@ -9029,7 +8143,7 @@ or to another Org file, automatically push the old position onto the ring."
     (setq m (car p))
     (pop-to-buffer-same-window (marker-buffer m))
     (goto-char m)
-    (when (or (org-invisible-p) (org-invisible-p2)) (org-show-context 'mark-goto))))
+    (when (or (org-invisible-p) (org-invisible-p2)) (org-fold-show-context 'mark-goto))))
 
 ;;; Following specific links
 
@@ -10769,7 +9883,8 @@ narrowing."
 	     (let ((beg (point)))
 	       (insert ":" drawer ":\n:END:\n")
 	       (org-indent-region beg (point))
-	       (org-flag-region (line-end-position -1) (1- (point)) t 'outline))
+	       (org-fold-region
+		(line-end-position -1) (1- (point)) t (org-fold-get-folding-spec-for-element 'drawer)))
 	     (end-of-line -1)))))
       (t
        (org-end-of-meta-data org-log-state-notes-insert-after-drawers)
@@ -10834,19 +9949,19 @@ EXTRA is additional text that will be inserted into the notes buffer."
     (insert (format "# Insert note for %s.
 # Finish with C-c C-c, or cancel with C-c C-k.\n\n"
 		    (cl-case org-log-note-purpose
-		     (clock-out "stopped clock")
-		     (done  "closed todo item")
-		     (reschedule "rescheduling")
-		     (delschedule "no longer scheduled")
-		     (redeadline "changing deadline")
-		     (deldeadline "removing deadline")
-		     (refile "refiling")
-		     (note "this entry")
-		     (state
-		      (format "state change from \"%s\" to \"%s\""
-			      (or org-log-note-previous-state "")
-			      (or org-log-note-state "")))
-		     (t (error "This should not happen")))))
+		      (clock-out "stopped clock")
+		      (done  "closed todo item")
+		      (reschedule "rescheduling")
+		      (delschedule "no longer scheduled")
+		      (redeadline "changing deadline")
+		      (deldeadline "removing deadline")
+		      (refile "refiling")
+		      (note "this entry")
+		      (state
+		       (format "state change from \"%s\" to \"%s\""
+			       (or org-log-note-previous-state "")
+			       (or org-log-note-state "")))
+		      (t (error "This should not happen")))))
     (when org-log-note-extra (insert org-log-note-extra))
     (setq-local org-finish-function 'org-store-log-note)
     (run-hooks 'org-log-buffer-setup-hook)))
@@ -11030,7 +10145,7 @@ as well.")
   "Make a compact tree showing all matches of REGEXP.
 
 The tree will show the lines where the regexp matches, and any other context
-defined in `org-show-context-detail', which see.
+defined in `org-fold-show-context-detail', which see.
 
 When optional argument KEEP-PREVIOUS is non-nil, highlighting and exposing
 done by a previous call to `org-occur' will be kept, to allow stacking of
@@ -11062,12 +10177,12 @@ The function must neither move point nor alter narrowing."
 	    (setq cnt (1+ cnt))
 	    (when org-highlight-sparse-tree-matches
 	      (org-highlight-new-match (match-beginning 0) (match-end 0)))
-	    (org-show-context 'occur-tree)))))
+	    (org-fold-show-context 'occur-tree)))))
     (when org-remove-highlights-with-change
       (add-hook 'before-change-functions 'org-remove-occur-highlights
 		nil 'local))
     (unless org-sparse-tree-open-archived-trees
-      (org-hide-archived-subtrees (point-min) (point-max)))
+      (org-fold-hide-archived-subtrees (point-min) (point-max)))
     (run-hooks 'org-occur-hook)
     (when (called-interactively-p 'interactive)
       (message "%d match(es) for regexp %s" cnt regexp))
@@ -11180,9 +10295,9 @@ or a character."
 				       (number-to-string org-priority-highest)
 				       (number-to-string org-priority-lowest))))
 	       (progn (message "Priority %c-%c, SPC to remove: "
-				 org-priority-highest org-priority-lowest)
-			(save-match-data
-			  (setq new (read-char-exclusive)))))))
+			       org-priority-highest org-priority-lowest)
+		      (save-match-data
+			(setq new (read-char-exclusive)))))))
 	  (when (and (= (upcase org-priority-highest) org-priority-highest)
 		     (= (upcase org-priority-lowest) org-priority-lowest))
 	    (setq new (upcase new)))
@@ -11422,7 +10537,7 @@ headlines matching this string."
 		   (org-get-heading) (match-end 0)
 		   (org-highlight-new-match
 		    (match-beginning 1) (match-end 1)))
-	      (org-show-context 'tags-tree))
+	      (org-fold-show-context 'tags-tree))
 	     ((eq action 'agenda)
 	      (setq txt (org-agenda-format-item
 			 ""
@@ -11460,7 +10575,7 @@ headlines matching this string."
 	  (and (= (point) lspos) (end-of-line 1)))))
     (when (and (eq action 'sparse-tree)
 	       (not org-sparse-tree-open-archived-trees))
-      (org-hide-archived-subtrees (point-min) (point-max)))
+      (org-fold-hide-archived-subtrees (point-min) (point-max)))
     (nreverse rtn)))
 
 (defun org-remove-uninherited-tags (tags)
@@ -11987,7 +11102,7 @@ This function assumes point is on a headline."
 	 ;; boundary, it can be inadvertently sucked into
 	 ;; invisibility.
 	 (unless (org-invisible-p (line-beginning-position))
-	   (org-flag-region (point) (line-end-position) nil 'outline))))
+	   (org-fold-region (point) (line-end-position) nil (org-fold-get-folding-spec-for-element 'headline)))))
      ;; Align tags, if any.
      (when tags (org-align-tags))
      (when tags-change? (run-hooks 'org-after-tags-change-hook)))))
@@ -12528,12 +11643,12 @@ it will be found.  If the drawer does not exist, create it if
 FORCE is non-nil, or return nil."
   (org-with-wide-buffer
    (let ((beg (cond (beg (goto-char beg))
-		      ((or (not (featurep 'org-inlinetask))
-			   (org-inlinetask-in-task-p))
-		       (org-back-to-heading-or-point-min t) (point))
-		      (t (org-with-limited-levels
-			  (org-back-to-heading-or-point-min t))
-			 (point)))))
+		    ((or (not (featurep 'org-inlinetask))
+			 (org-inlinetask-in-task-p))
+		     (org-back-to-heading-or-point-min t) (point))
+		    (t (org-with-limited-levels
+			(org-back-to-heading-or-point-min t))
+		       (point)))))
      ;; Move point to its position according to its positional rules.
      (cond ((org-before-first-heading-p)
 	    (while (and (org-at-comment-p) (bolp)) (forward-line)))
@@ -13223,7 +12338,7 @@ drawer is immediately hidden."
 	   (inhibit-read-only t))
        (unless (bobp) (insert "\n"))
        (insert ":PROPERTIES:\n:END:")
-       (org-flag-region (line-end-position 0) (point) t 'outline)
+       (org-fold-region (line-end-position 0) (point) t (org-fold-get-folding-spec-for-element 'drawer))
        (when (or (eobp) (= begin (point-min))) (insert "\n"))
        (org-indent-region begin (point))))))
 
@@ -15038,7 +14153,7 @@ When SUPPRESS-TMP-DELAY is non-nil, suppress delays like
 		  (message "No clock to adjust")
 		(save-excursion
 		  (org-goto-marker-or-bmk clfixpos)
-		  (org-show-subtree)
+		  (org-fold-show-subtree)
 		  (when (re-search-forward clrgx nil t)
 		    (goto-char (match-beginning 1))
 		    (let (org-clock-adjust-closest)
@@ -15240,44 +14355,6 @@ prefix, restrict available buffers to agenda files."
      (completing-read "Org buffer: "
 		      (mapcar #'list (mapcar #'buffer-name blist))
 		      nil t))))
-
-(defun org-buffer-list (&optional predicate exclude-tmp)
-  "Return a list of Org buffers.
-PREDICATE can be `export', `files' or `agenda'.
-
-export   restrict the list to Export buffers.
-files    restrict the list to buffers visiting Org files.
-agenda   restrict the list to buffers visiting agenda files.
-
-If EXCLUDE-TMP is non-nil, ignore temporary buffers."
-  (let* ((bfn nil)
-	 (agenda-files (and (eq predicate 'agenda)
-			    (mapcar 'file-truename (org-agenda-files t))))
-	 (filter
-	  (cond
-	   ((eq predicate 'files)
-	    (lambda (b) (with-current-buffer b (derived-mode-p 'org-mode))))
-	   ((eq predicate 'export)
-	    (lambda (b) (string-match "\\*Org .*Export" (buffer-name b))))
-	   ((eq predicate 'agenda)
-	    (lambda (b)
-	      (with-current-buffer b
-		(and (derived-mode-p 'org-mode)
-		     (setq bfn (buffer-file-name b))
-		     (member (file-truename bfn) agenda-files)))))
-	   (t (lambda (b) (with-current-buffer b
-			    (or (derived-mode-p 'org-mode)
-				(string-match "\\*Org .*Export"
-					      (buffer-name b)))))))))
-    (delq nil
-	  (mapcar
-	   (lambda(b)
-	     (if (and (funcall filter b)
-		      (or (not exclude-tmp)
-			  (not (string-match "tmp" (buffer-name b)))))
-		 b
-	       nil))
-	   (buffer-list)))))
 
 (defun org-agenda-files (&optional unrestricted archives)
   "Get the list of agenda files.
@@ -16494,12 +15571,20 @@ buffer boundaries with possible narrowing."
 (defvar org-self-insert-command-undo-counter 0)
 (defvar org-speed-command nil)
 
+(defun org-fix-tags-on-the-fly ()
+  "Align tags in headline at point.
+Unlike `org-align-tags', this function does nothing if point is
+either not currently on a tagged headline or on a tag."
+  (when (and (org-match-line org-tag-line-re)
+	     (< (point) (match-beginning 1)))
+    (org-align-tags)))
+
 (defun org-self-insert-command (N)
   "Like `self-insert-command', use overwrite-mode for whitespace in tables.
 If the cursor is in a table looking at whitespace, the whitespace is
 overwritten, and the table is not marked as requiring realignment."
   (interactive "p")
-  (org-check-before-invisible-edit 'insert)
+  (org-fold-check-before-invisible-edit 'insert)
   (cond
    ((and org-use-speed-commands
 	 (let ((kv (this-command-keys-vector)))
@@ -16561,80 +15646,6 @@ overwritten, and the table is not marked as requiring realignment."
 	  (setq org-self-insert-command-undo-counter
 		(1+ org-self-insert-command-undo-counter))))))))
 
-(defun org-check-before-invisible-edit (kind)
-  "Check is editing if kind KIND would be dangerous with invisible text around.
-The detailed reaction depends on the user option `org-catch-invisible-edits'."
-  ;; First, try to get out of here as quickly as possible, to reduce overhead
-  (when (and org-catch-invisible-edits
-	     (or (not (boundp 'visible-mode)) (not visible-mode))
-	     (or (get-char-property (point) 'invisible)
-		 (get-char-property (max (point-min) (1- (point))) 'invisible)))
-    ;; OK, we need to take a closer look.  Do not consider
-    ;; invisibility obtained through text properties (e.g., link
-    ;; fontification), as it cannot be toggled.
-    (let* ((invisible-at-point
-	    (pcase (get-char-property-and-overlay (point) 'invisible)
-	      (`(,_ . ,(and (pred overlayp) o)) o)))
-	   ;; Assume that point cannot land in the middle of an
-	   ;; overlay, or between two overlays.
-	   (invisible-before-point
-	    (and (not invisible-at-point)
-		 (not (bobp))
-		 (pcase (get-char-property-and-overlay (1- (point)) 'invisible)
-		   (`(,_ . ,(and (pred overlayp) o)) o))))
-	   (border-and-ok-direction
-	    (or
-	     ;; Check if we are acting predictably before invisible
-	     ;; text.
-	     (and invisible-at-point
-		  (memq kind '(insert delete-backward)))
-	     ;; Check if we are acting predictably after invisible text
-	     ;; This works not well, and I have turned it off.  It seems
-	     ;; better to always show and stop after invisible text.
-	     ;; (and (not invisible-at-point) invisible-before-point
-	     ;;  (memq kind '(insert delete)))
-	     )))
-      (when (or invisible-at-point invisible-before-point)
-	(when (eq org-catch-invisible-edits 'error)
-	  (user-error "Editing in invisible areas is prohibited, make them visible first"))
-	(if (and org-custom-properties-overlays
-		 (y-or-n-p "Display invisible properties in this buffer? "))
-	    (org-toggle-custom-properties-visibility)
-	  ;; Make the area visible
-	  (save-excursion
-	    (when invisible-before-point
-	      (goto-char
-	       (previous-single-char-property-change (point) 'invisible)))
-	    ;; Remove whatever overlay is currently making yet-to-be
-	    ;; edited text invisible.  Also remove nested invisibility
-	    ;; related overlays.
-	    (delete-overlay (or invisible-at-point invisible-before-point))
-	    (let ((origin (if invisible-at-point (point) (1- (point)))))
-	      (while (pcase (get-char-property-and-overlay origin 'invisible)
-		       (`(,_ . ,(and (pred overlayp) o))
-			(delete-overlay o)
-			t)))))
-	  (cond
-	   ((eq org-catch-invisible-edits 'show)
-	    ;; That's it, we do the edit after showing
-	    (message
-	     "Unfolding invisible region around point before editing")
-	    (sit-for 1))
-	   ((and (eq org-catch-invisible-edits 'smart)
-		 border-and-ok-direction)
-	    (message "Unfolding invisible region around point before editing"))
-	   (t
-	    ;; Don't do the edit, make the user repeat it in full visibility
-	    (user-error "Edit in invisible region aborted, repeat to confirm with text visible"))))))))
-
-(defun org-fix-tags-on-the-fly ()
-  "Align tags in headline at point.
-Unlike `org-align-tags', this function does nothing if point is
-either not currently on a tagged headline or on a tag."
-  (when (and (org-match-line org-tag-line-re)
-	     (< (point) (match-beginning 1)))
-    (org-align-tags)))
-
 (defun org-delete-backward-char (N)
   "Like `delete-backward-char', insert whitespace at field end in tables.
 When deleting backwards, in tables this function will insert whitespace in
@@ -16643,7 +15654,7 @@ still be marked for re-alignment if the field did fill the entire column,
 because, in this case the deletion might narrow the column."
   (interactive "p")
   (save-match-data
-    (org-check-before-invisible-edit 'delete-backward)
+    (org-fold-check-before-invisible-edit 'delete-backward)
     (if (and (= N 1)
 	     (not overwrite-mode)
 	     (not (org-region-active-p))
@@ -16663,7 +15674,7 @@ still be marked for re-alignment if the field did fill the entire column,
 because, in this case the deletion might narrow the column."
   (interactive "p")
   (save-match-data
-    (org-check-before-invisible-edit 'delete)
+    (org-fold-check-before-invisible-edit 'delete)
     (cond
      ((or (/= N 1)
 	  (eq (char-after) ?|)
@@ -17015,14 +16026,14 @@ this function returns t, nil otherwise."
 	  (setq beg (point-at-bol))
 	  (beginning-of-line 2)
 	  (while (and (not (eobp)) ;; this is like `next-line'
-		      (get-char-property (1- (point)) 'invisible))
+		      (org-invisible-p (1- (point))))
 	    (beginning-of-line 2))
 	  (setq end (point))
 	  (goto-char beg)
 	  (goto-char (point-at-eol))
 	  (setq end (max end (point)))
 	  (while (re-search-forward re end t)
-	    (when (get-char-property (match-beginning 0) 'invisible)
+	    (when (org-invisible-p (match-beginning 0))
 	      (throw 'exit t))))
 	nil))))
 
@@ -17304,9 +16315,9 @@ this numeric value."
   (interactive "r")
   (let ((result ""))
     (while (/= beg end)
-      (when (get-char-property beg 'invisible)
-	(setq beg (next-single-char-property-change beg 'invisible nil end)))
-      (let ((next (next-single-char-property-change beg 'invisible nil end)))
+      (while (org-invisible-p beg)
+	(setq beg (org-fold-next-visibility-change beg end)))
+      (let ((next (org-fold-next-visibility-change beg end)))
 	(setq result (concat result (buffer-substring beg next)))
 	(setq beg next)))
     (setq deactivate-mark t)
@@ -17669,39 +16680,20 @@ Use `\\[org-edit-special]' to edit table.el tables"))
     (org-reset-file-cache))
   (message "%s restarted" major-mode))
 
-(defun org-flag-above-first-heading (&optional arg)
-  "Hide from bob up to the first heading.
-Move point to the beginning of first heading or end of buffer."
-  (goto-char (point-min))
-  (unless (org-at-heading-p)
-    (outline-next-heading))
-  (unless (bobp)
-    (org-flag-region 1 (1- (point)) (not arg) 'outline)))
-
-(defun org-show-branches-buffer ()
-  "Show all branches in the buffer."
-  (org-flag-above-first-heading)
-  (outline-hide-sublevels 1)
-  (unless (eobp)
-    (outline-show-branches)
-    (while (outline-get-next-sibling)
-      (outline-show-branches)))
-  (goto-char (point-min)))
-
 (defun org-kill-note-or-show-branches ()
   "Abort storing current note, or show just branches."
   (interactive)
   (cond (org-finish-function
 	 (let ((org-note-abort t)) (funcall org-finish-function)))
 	((org-before-first-heading-p)
-	 (org-show-branches-buffer)
-	 (org-hide-archived-subtrees (point-min) (point-max)))
+	 (org-fold-show-branches-buffer)
+	 (org-fold-hide-archived-subtrees (point-min) (point-max)))
 	(t
 	 (let ((beg (progn (org-back-to-heading) (point)))
 	       (end (save-excursion (org-end-of-subtree t t) (point))))
-	   (outline-hide-subtree)
-	   (outline-show-branches)
-	   (org-hide-archived-subtrees beg end)))))
+	   (org-fold-hide-subtree)
+	   (org-fold-show-branches)
+	   (org-fold-hide-archived-subtrees beg end)))))
 
 (defun org-delete-indentation (&optional arg)
   "Join current line to previous and fix whitespace at join.
@@ -17823,7 +16815,7 @@ object (e.g., within a comment).  In these case, you need to use
 	 (org-auto-align-tags (org-align-tags))
 	 (t (org--align-tags-here tags-column))) ;preserve tags column
 	(end-of-line)
-	(org-show-entry)
+	(org-fold-show-entry)
 	(org--newline indent arg interactive)
 	(when string (save-excursion (insert (org-trim string))))))
      ;; In a list, make sure indenting keeps trailing text within.
@@ -17860,11 +16852,11 @@ level to hide."
     (call-interactively #'org-table-toggle-column-width))
    ((org-before-first-heading-p)
     (save-excursion
-      (org-flag-above-first-heading)
-      (outline-hide-sublevels (or arg 1))))
+      (org-fold-flag-above-first-heading)
+      (org-fold-hide-sublevels (or arg 1))))
    (t
-    (outline-hide-subtree)
-    (org-show-children arg))))
+    (org-fold-hide-subtree)
+    (org-fold-show-children arg))))
 
 (defun org-ctrl-c-star ()
   "Compute table, or change heading status of lines.
@@ -18000,7 +16992,7 @@ Calls `org-insert-heading', `org-insert-item' or
 `org-table-wrap-region', depending on context.  When called with
 an argument, unconditionally call `org-insert-heading'."
   (interactive "P")
-  (org-check-before-invisible-edit 'insert)
+  (org-fold-check-before-invisible-edit 'insert)
   (or (run-hook-with-args-until-success 'org-metareturn-hook)
       (call-interactively (cond (arg #'org-insert-heading)
 				((org-at-table-p) #'org-table-wrap-region)
@@ -18020,8 +17012,8 @@ an argument, unconditionally call `org-insert-heading'."
      ["Cycle Visibility" org-cycle :active (or (bobp) (outline-on-heading-p))]
      ["Cycle Global Visibility" org-shifttab :active (not (org-at-table-p))]
      ["Sparse Tree..." org-sparse-tree t]
-     ["Reveal Context" org-reveal t]
-     ["Show All" org-show-all t]
+     ["Reveal Context" org-fold-reveal t]
+     ["Show All" org-fold-show-all t]
      "--"
      ["Subtree to indirect buffer" org-tree-to-indirect-buffer t])
     "--"
@@ -18483,7 +17475,7 @@ With prefix arg UNCOMPILED, load the uncompiled versions."
 	(when (or (> marker (point-max)) (< marker (point-min)))
 	  (widen))
 	(goto-char marker)
-	(org-show-context 'org-goto))
+	(org-fold-show-context 'org-goto))
     (if bookmark
 	(bookmark-jump bookmark)
       (error "Cannot find location"))))
@@ -18718,7 +17710,7 @@ block from point."
      regexp)))
 
 (add-hook 'occur-mode-find-occurrence-hook
-	  (lambda () (when (derived-mode-p 'org-mode) (org-reveal))))
+	  (lambda () (when (derived-mode-p 'org-mode) (org-fold-reveal))))
 
 (defun org-occur-link-in-agenda-files ()
   "Create a link and search for it in the agendas.
@@ -19626,7 +18618,7 @@ Throw an error if no block is found."
 	  (cl-decf count))))
     (if (= count 0)
 	(prog1 (goto-char (org-element-property :post-affiliated last-element))
-	  (save-match-data (org-show-context)))
+	  (save-match-data (org-fold-show-context)))
       (goto-char origin)
       (user-error "No %s code blocks" (if backward "previous" "further")))))
 
@@ -20107,7 +19099,7 @@ depending on context."
    ((or (not org-special-ctrl-k)
 	(bolp)
 	(not (org-at-heading-p)))
-    (when (and (get-char-property (line-end-position) 'invisible)
+    (when (and (org-invisible-p (line-end-position))
 	       org-ctrl-k-protect-subtree
 	       (or (eq org-ctrl-k-protect-subtree 'error)
 		   (not (y-or-n-p "Kill hidden subtree along with headline? "))))
@@ -20190,12 +19182,12 @@ interactive command with similar behavior."
 	  (goto-char beg)
 	  (when (and (bolp) subtreep
 		     (not (setq swallowp
-				(org-yank-folding-would-swallow-text beg end))))
+			      (org-yank-folding-would-swallow-text beg end))))
 	    (org-with-limited-levels
 	     (or (looking-at org-outline-regexp)
 		 (re-search-forward org-outline-regexp-bol end t))
 	     (while (and (< (point) end) (looking-at org-outline-regexp))
-	       (org-flag-subtree t)
+	       (org-fold-subtree t)
 	       (org-cycle-show-empty-lines 'folded)
 	       (condition-case nil
 		   (outline-forward-same-level 1)
@@ -20233,7 +19225,10 @@ interactive command with similar behavior."
 (defun org-back-to-heading (&optional invisible-ok)
   "Call `outline-back-to-heading', but provide a better error message."
   (condition-case nil
-      (outline-back-to-heading invisible-ok)
+      (if (and (featurep 'org-inlinetask) (org-inlinetask-in-task-p))
+	  (outline-back-to-heading invisible-ok)
+	(org-with-limited-levels
+	 (outline-back-to-heading invisible-ok)))
     (error
      (user-error "Before first headline at position %d in buffer %s"
 		 (point) (current-buffer)))))
@@ -20392,14 +19387,6 @@ move point."
 	(goto-char pos)
 	nil))))
 
-(defun org-show-siblings ()
-  "Show all siblings of the current headline."
-  (save-excursion
-    (while (org-goto-sibling) (org-flag-heading nil)))
-  (save-excursion
-    (while (org-goto-sibling 'previous)
-      (org-flag-heading nil))))
-
 (defun org-goto-first-child ()
   "Goto the first child, even if it is invisible.
 Return t when a child was found.  Otherwise don't move point and
@@ -20411,25 +19398,6 @@ return nil."
       (if (and (re-search-forward re nil t) (> (outline-level) level))
 	  (progn (goto-char (match-beginning 0)) t)
 	(goto-char pos) nil))))
-
-(defun org-show-hidden-entry ()
-  "Show an entry where even the heading is hidden."
-  (save-excursion
-    (org-show-entry)))
-
-(defun org-flag-heading (flag &optional entry)
-  "Flag the current heading.  FLAG non-nil means make invisible.
-When ENTRY is non-nil, show the entire entry."
-  (save-excursion
-    (org-back-to-heading t)
-    ;; Check if we should show the entire entry
-    (if (not entry)
-	(org-flag-region
-	 (line-end-position 0) (line-end-position) flag 'outline)
-      (org-show-entry)
-      (save-excursion
-	(and (outline-next-heading)
-	     (org-flag-heading nil))))))
 
 (defun org-get-next-sibling ()
   "Move to next heading of the same level, and return point.
@@ -20589,20 +19557,16 @@ With ARG, repeats or can move backward if negative."
       (end-of-line))
     (while (and (< arg 0) (re-search-backward regexp nil :move))
       (unless (bobp)
-	(while (pcase (get-char-property-and-overlay (point) 'invisible)
-		 (`(outline . ,o)
-		  (goto-char (overlay-start o))
-		  (re-search-backward regexp nil :move))
-		 (_ nil))))
+	(when (org-fold-folded-p)
+	  (goto-char (org-fold-previous-visibility-change))
+          (unless (looking-at-p regexp)
+            (re-search-backward regexp nil :mode))))
       (cl-incf arg))
-    (while (and (> arg 0) (re-search-forward regexp nil t))
-      (while (pcase (get-char-property-and-overlay (point) 'invisible)
-	       (`(outline . ,o)
-		(goto-char (overlay-end o))
-		(re-search-forward regexp nil :move))
-	       (_
-		(end-of-line)
-		nil)))			;leave the loop
+    (while (and (> arg 0) (re-search-forward regexp nil :move))
+      (when (org-fold-folded-p)
+	(goto-char (org-fold-next-visibility-change))
+        (skip-chars-forward " \t\n")
+	(end-of-line))
       (cl-decf arg))
     (if (> arg 0) (goto-char (point-max)) (beginning-of-line))))
 
@@ -20747,9 +19711,10 @@ See `org-forward-paragraph'."
     (cond
      ((eobp) nil)
      ;; When inside a folded part, move out of it.
-     ((pcase (get-char-property-and-overlay (point) 'invisible)
-	(`(,(or `outline `org-hide-block) . ,o)
-	 (goto-char (overlay-end o))
+     ((pcase (org-fold-get-folding-spec)
+	((or (pred (eq (org-fold-get-folding-spec-for-element 'headline)))
+             (pred (eq (org-fold-get-folding-spec-for-element 'block))))
+	 (goto-char (cdr (org-fold-get-region-at-point)))
 	 (forward-line)
 	 t)
 	(_ nil)))
@@ -20765,10 +19730,13 @@ See `org-forward-paragraph'."
 	  (org--forward-paragraph-once))
 	 ;; If the element is folded, skip it altogether.
 	 ((pcase (org-with-point-at post-affiliated
-		   (get-char-property-and-overlay (line-end-position)
-						  'invisible))
-	    (`(,(or `outline `org-hide-block) . ,o)
-	     (goto-char (overlay-end o))
+		   (org-fold-get-folding-spec nil (line-end-position)))
+	    ((or (pred (eq (org-fold-get-folding-spec-for-element 'headline)))
+		 (pred (eq (org-fold-get-folding-spec-for-element 'block))))
+	     (goto-char (cdr (org-fold-get-region-at-point
+			      nil
+			      (org-with-point-at post-affiliated
+				(line-end-position)))))
 	     (forward-line)
 	     t)
 	    (_ nil)))
@@ -20823,9 +19791,10 @@ See `org-backward-paragraph'."
 	   (save-excursion (skip-chars-backward " \t\n") (bobp)))
       (goto-char (point-min)))
      ;; When inside a folded part, move out of it.
-     ((pcase (get-char-property-and-overlay (1- (point)) 'invisible)
-	(`(,(or `outline `org-hide-block) . ,o)
-	 (goto-char (1- (overlay-start o)))
+     ((pcase (org-fold-get-folding-spec nil (1- (point)))
+	((or (pred (eq (org-fold-get-folding-spec-for-element 'headline)))
+             (pred (eq (org-fold-get-folding-spec-for-element 'block))))
+	 (goto-char (1- (car (org-fold-get-region-at-point nil (1- (point))))))
 	 (org--backward-paragraph-once)
 	 t)
 	(_ nil)))
@@ -21205,7 +20174,7 @@ Started from `gnus-info-find-node'."
 
 (add-hook 'org-mode-hook     ;remove overlays when changing major mode
 	  (lambda () (add-hook 'change-major-mode-hook
-			       'org-show-all 'append 'local)))
+			  'org-fold-show-all 'append 'local)))
 
 (provide 'org)
 

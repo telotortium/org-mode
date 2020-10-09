@@ -1025,7 +1025,7 @@ CLOCK is a cons cell of the form (MARKER START-TIME)."
 	       (let ((element (org-element-at-point)))
 		 (when (eq (org-element-type element) 'drawer)
 		   (when (> (org-element-property :end element) (car clock))
-		     (org-hide-drawer-toggle 'off nil element))
+		     (org-fold-hide-drawer-toggle 'off nil element))
 		   (throw 'exit nil)))))))))))
 
 (defun org-clock-resolve (clock &optional prompt-fn last-valid fail-quietly)
@@ -1581,8 +1581,8 @@ line and position cursor in that line."
 	    (let ((beg (point)))
 	      (insert ":" drawer ":\n:END:\n")
 	      (org-indent-region beg (point))
-	      (org-flag-region
-	       (line-end-position -1) (1- (point)) t 'outline)
+	      (org-fold-region
+	       (line-end-position -1) (1- (point)) t (org-fold-get-folding-spec-for-element 'headline))
 	      (forward-line -1))))
 	 ;; When a clock drawer needs to be created because of the
 	 ;; number of clock items or simply if it is missing, collect
@@ -1607,7 +1607,7 @@ line and position cursor in that line."
 	    (let ((end (point-marker)))
 	      (goto-char beg)
 	      (save-excursion (insert ":" drawer ":\n"))
-	      (org-flag-region (line-end-position) (1- end) t 'outline)
+	      (org-fold-region (line-end-position) (1- end) t (org-fold-get-folding-spec-for-element 'headline))
 	      (org-indent-region (point) end)
 	      (forward-line)
 	      (unless org-log-states-order-reversed
@@ -1834,10 +1834,10 @@ With prefix arg SELECT, offer recently clocked tasks for selection."
     (pop-to-buffer-same-window (marker-buffer m))
     (if (or (< m (point-min)) (> m (point-max))) (widen))
     (goto-char m)
-    (org-show-entry)
+    (org-fold-show-entry)
     (org-back-to-heading t)
     (recenter org-clock-goto-before-context)
-    (org-reveal)
+    (org-fold-reveal)
     (if recent
 	(message "No running clock, this is the most recently clocked task"))
     (run-hooks 'org-clock-goto-hook)))
@@ -2131,7 +2131,7 @@ in the buffer and update it."
   (org-clock-remove-overlays)
   (when arg
     (org-find-dblock "clocktable")
-    (org-show-entry))
+    (org-fold-show-entry))
   (pcase (org-in-clocktable-p)
     (`nil
      (org-create-dblock
@@ -3100,7 +3100,7 @@ The details of what will be saved are regulated by the variable
 	     (let ((org-clock-in-resume 'auto-restart)
 		   (org-clock-auto-clock-resolution nil))
 	       (org-clock-in)
-	       (when (org-invisible-p) (org-show-context))))))
+	       (when (org-invisible-p) (org-fold-show-context))))))
 	(_ nil)))))
 
 ;; Suggested bindings

@@ -6835,7 +6835,7 @@ and stored in the variable `org-prefix-format-compiled'."
 	    (t "  %-12:c%?-12t% s")))
 	(start 0)
 	varform vars var e c f opt)
-    (while (string-match "%\\(\\?\\)?\\([-+]?[0-9.]*\\)\\([ .;,:!?=|/<>]?\\)\\([cltseib]\\|(.+)\\)"
+    (while (string-match "%\\(\\?\\)?\\([-+]?[0-9.]*\\)\\([ .;,:!?=|/<>]?\\)\\([cltseib]\\|(.+?)\\)"
 			 s start)
       (setq var (or (cdr (assoc (match-string 4 s)
 				'(("c" . category) ("t" . time) ("l" . level) ("s" . extra)
@@ -8801,7 +8801,7 @@ When called with a prefix argument, include all archive files as well."
     (push-mark)
     (goto-char pos)
     (when (derived-mode-p 'org-mode)
-      (org-show-context 'agenda)
+      (org-fold-show-context 'agenda)
       (recenter (/ (window-height) 2))
       (org-back-to-heading t)
       (let ((case-fold-search nil))
@@ -9088,7 +9088,7 @@ displayed Org file fills the frame."
       (widen)
       (goto-char pos)
       (when (derived-mode-p 'org-mode)
-	(org-show-context 'agenda)
+	(org-fold-show-context 'agenda)
 	(run-hooks 'org-agenda-after-show-hook)))))
 
 (defun org-agenda-goto-mouse (ev)
@@ -9104,7 +9104,7 @@ if it was hidden in the outline."
   (interactive "P")
   (let ((win (selected-window)))
     (org-agenda-goto t)
-    (when full-entry (org-show-entry))
+    (when full-entry (org-fold-show-entry))
     (select-window win)))
 
 (defvar org-agenda-show-window nil)
@@ -9123,12 +9123,12 @@ fold drawers."
 	  (select-window org-agenda-show-window)
 	  (ignore-errors (scroll-up)))
       (org-agenda-goto t)
-      (org-show-entry)
+      (org-fold-show-entry)
       (if arg (org-cycle-hide-drawers 'children)
 	(org-with-wide-buffer
 	 (narrow-to-region (org-entry-beginning-position)
 			   (org-entry-end-position))
-	 (org-show-all '(drawers))))
+	 (org-fold-show-all '(drawers))))
       (setq org-agenda-show-window (selected-window)))
     (select-window win)))
 
@@ -9159,7 +9159,7 @@ if it was hidden in the outline."
     (set-window-start (selected-window) (point-at-bol))
     (cond
      ((= more 0)
-      (org-flag-subtree t)
+      (org-fold-subtree t)
       (save-excursion
 	(org-back-to-heading)
 	(run-hook-with-args 'org-cycle-hook 'folded))
@@ -9167,20 +9167,20 @@ if it was hidden in the outline."
      ((and (called-interactively-p 'any) (= more 1))
       (message "Remote: show with default settings"))
      ((= more 2)
-      (outline-show-entry)
-      (org-show-children)
+      (org-fold-show-entry)
+      (org-fold-show-children)
       (save-excursion
 	(org-back-to-heading)
 	(run-hook-with-args 'org-cycle-hook 'children))
       (message "Remote: CHILDREN"))
      ((= more 3)
-      (outline-show-subtree)
+      (org-fold-show-subtree)
       (save-excursion
 	(org-back-to-heading)
 	(run-hook-with-args 'org-cycle-hook 'subtree))
       (message "Remote: SUBTREE"))
      ((> more 3)
-      (outline-show-subtree)
+      (org-fold-show-subtree)
       (message "Remote: SUBTREE AND ALL DRAWERS")))
     (select-window win)))
 
@@ -9310,7 +9310,7 @@ the same tree node, and the headline of the tree node in the Org file."
        (with-current-buffer buffer
 	 (widen)
 	 (goto-char pos)
-	 (org-show-context 'agenda)
+	 (org-fold-show-context 'agenda)
 	 (let ((current-prefix-arg arg))
 	   (call-interactively 'org-todo))
 	 (and (bolp) (forward-char 1))
@@ -9318,7 +9318,7 @@ the same tree node, and the headline of the tree node in the Org file."
 	 (when (and (bound-and-true-p
 		     org-agenda-headline-snapshot-before-repeat)
 		    (not (equal org-agenda-headline-snapshot-before-repeat
-				newhead))
+			      newhead))
 		    todayp)
 	   (setq newhead org-agenda-headline-snapshot-before-repeat
 		 just-one t))
@@ -9348,7 +9348,7 @@ the same tree node, and the headline of the tree node in the Org file."
     (with-current-buffer buffer
       (widen)
       (goto-char pos)
-      (org-show-context 'agenda)
+      (org-fold-show-context 'agenda)
       (org-add-note))))
 
 (defun org-agenda-change-all-lines (newhead hdmarker
@@ -9488,7 +9488,7 @@ Called with a universal prefix arg, show the priority instead of setting it."
 	(with-current-buffer buffer
 	  (widen)
 	  (goto-char pos)
-	  (org-show-context 'agenda)
+	  (org-fold-show-context 'agenda)
 	  (org-priority force-direction)
 	  (end-of-line 1)
 	  (setq newhead (org-get-heading)))
@@ -9512,7 +9512,7 @@ Called with a universal prefix arg, show the priority instead of setting it."
 	(with-current-buffer buffer
 	  (widen)
 	  (goto-char pos)
-	  (org-show-context 'agenda)
+	  (org-fold-show-context 'agenda)
 	  (if tag
 	      (org-toggle-tag tag onoff)
 	    (call-interactively #'org-set-tags-command))
@@ -9537,7 +9537,7 @@ Called with a universal prefix arg, show the priority instead of setting it."
        (with-current-buffer buffer
 	 (widen)
 	 (goto-char pos)
-	 (org-show-context 'agenda)
+	 (org-fold-show-context 'agenda)
 	 (call-interactively 'org-set-property))))))
 
 (defun org-agenda-set-effort ()
@@ -9556,7 +9556,7 @@ Called with a universal prefix arg, show the priority instead of setting it."
        (with-current-buffer buffer
 	 (widen)
 	 (goto-char pos)
-	 (org-show-context 'agenda)
+	 (org-fold-show-context 'agenda)
 	 (call-interactively 'org-set-effort)
 	 (end-of-line 1)
 	 (setq newhead (org-get-heading)))
@@ -9578,7 +9578,7 @@ Called with a universal prefix arg, show the priority instead of setting it."
        (with-current-buffer buffer
 	 (widen)
 	 (goto-char pos)
-	 (org-show-context 'agenda)
+	 (org-fold-show-context 'agenda)
 	 (call-interactively 'org-toggle-archive-tag)
 	 (end-of-line 1)
 	 (setq newhead (org-get-heading)))
@@ -9783,7 +9783,7 @@ ARG is passed through to `org-deadline'."
         (with-current-buffer (marker-buffer marker)
 	  (widen)
 	  (goto-char pos)
-	  (org-show-context 'agenda)
+	  (org-fold-show-context 'agenda)
 	  (org-clock-in arg)
 	  (setq newhead (org-get-heading)))
 	(org-agenda-change-all-lines newhead hdmarker))
@@ -9872,7 +9872,7 @@ buffer, display it in another window."
        (find-file-noselect org-agenda-diary-file))
       (require 'org-datetree)
       (org-datetree-find-date-create d1)
-      (org-reveal t))
+      (org-fold-reveal t))
      (t (user-error "Invalid selection character `%c'" char)))))
 
 (defcustom org-agenda-insert-diary-strategy 'date-tree
@@ -9974,7 +9974,7 @@ the resulting entry will not be shown.  When TEXT is empty, switch to
 	  (message "%s entry added to %s"
 		   (capitalize (symbol-name type))
 		   (abbreviate-file-name org-agenda-diary-file)))
-      (org-reveal t)
+      (org-fold-reveal t)
       (message "Please finish entry here"))))
 
 (defun org-agenda-insert-diary-as-top-level (text)
@@ -10012,7 +10012,7 @@ a timestamp can be added there."
     (unless (bolp) (insert "\n"))
     (unless (looking-at-p "^[ \t]*$") (save-excursion (insert "\n")))
     (when org-adapt-indentation (indent-to-column col)))
-  (org-show-set-visibility 'lineage))
+  (org-fold-show-set-visibility 'lineage))
 
 (defun org-agenda-diary-entry ()
   "Make a diary entry, like the `i' command from the calendar.

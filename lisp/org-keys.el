@@ -149,7 +149,7 @@
 (declare-function org-resolve-clocks "org" (&optional only-dangling-p prompt-fn last-valid))
 (declare-function org-return "org" (&optional indent))
 (declare-function org-return-and-maybe-indent "org" ())
-(declare-function org-reveal "org" (&optional siblings))
+(declare-function org-fold-reveal "org-fold" (&optional siblings))
 (declare-function org-schedule "org" (arg &optional time))
 (declare-function org-self-insert-command "org" (N))
 (declare-function org-set-effort "org" (&optional increment value))
@@ -169,9 +169,9 @@
 (declare-function org-shiftright "org" (&optional arg))
 (declare-function org-shifttab "org" (&optional arg))
 (declare-function org-shiftup "org" (&optional arg))
-(declare-function org-show-all "org" (&optional types))
-(declare-function org-show-children "org" (&optional level))
-(declare-function org-show-subtree "org" ())
+(declare-function org-fold-show-all "org-fold" (&optional types))
+(declare-function org-fold-show-children "org-fold" (&optional level))
+(declare-function org-fold-show-subtree "org-fold" ())
 (declare-function org-sort "org" (&optional with-case))
 (declare-function org-sparse-tree "org" (&optional arg type))
 (declare-function org-table-blank-field "org" ())
@@ -423,7 +423,7 @@ COMMANDS is a list of alternating OLDDEF NEWDEF command names."
 (define-key org-mode-map [menu-bar show] 'undefined)
 
 (define-key org-mode-map [remap outline-mark-subtree] #'org-mark-subtree)
-(define-key org-mode-map [remap outline-show-subtree] #'org-show-subtree)
+(define-key org-mode-map [remap outline-show-subtree] #'org-fold-show-subtree)
 (define-key org-mode-map [remap outline-forward-same-level]
   #'org-forward-heading-same-level)
 (define-key org-mode-map [remap outline-backward-same-level]
@@ -437,7 +437,7 @@ COMMANDS is a list of alternating OLDDEF NEWDEF command names."
   #'org-next-visible-heading)
 (define-key org-mode-map [remap outline-previous-visible-heading]
   #'org-previous-visible-heading)
-(define-key org-mode-map [remap show-children] #'org-show-children)
+(define-key org-mode-map [remap outline-show-children] #'org-fold-show-children)
 
 ;;;; Make `C-c C-x' a prefix key
 (org-defkey org-mode-map (kbd "C-c C-x") (make-sparse-keymap))
@@ -554,7 +554,7 @@ COMMANDS is a list of alternating OLDDEF NEWDEF command names."
 
 ;;;; All the other keys
 (org-defkey org-mode-map (kbd "|") #'org-force-self-insert)
-(org-defkey org-mode-map (kbd "C-c C-r") #'org-reveal)
+(org-defkey org-mode-map (kbd "C-c C-r") #'org-fold-reveal)
 (org-defkey org-mode-map (kbd "C-M-t") #'org-transpose-element)
 (org-defkey org-mode-map (kbd "M-}") #'org-forward-element)
 (org-defkey org-mode-map (kbd "ESC }") #'org-forward-element)
